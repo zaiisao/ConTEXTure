@@ -1,5 +1,5 @@
 log:
-  exp_name: spiderman_5_1
+  exp_name: spiderman_interleave_test
 guide:
   text: "A photo of Spiderman, {} view"
   append_direction: True

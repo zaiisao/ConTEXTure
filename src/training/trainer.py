@@ -50,7 +50,7 @@ class TEXTure:
             self.device).permute(2, 0,
                                  1) / 255.0
 
-        self.zero123_front_input = None
+        self.zero123_cond_image = None
 
         logger.info(f'Successfully initialized {self.cfg.log.exp_name}')
 
@@ -131,15 +131,22 @@ class TEXTure:
         pbar = tqdm(total=len(self.dataloaders['train']), initial=self.paint_step,
                     bar_format='{desc}: {percentage:3.0f}% painting step {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
-        # JA: The following loop computes the texture atlas for the given mesh using ten render images. In other words,
-        # it is the inverse rendering process. Each of the ten views is one of the six view images.
-        for data in self.dataloaders['train']:
-            self.paint_step += 1
-            pbar.update(1)
-            self.paint_viewpoint(data) # JA: paint_viewpoint computes the part of the texture atlas by using a specific view image
-            self.evaluate(self.dataloaders['val'], self.eval_renders_path)  # JA: This is the validation step for the current
-                                                                            # training step
-            self.mesh_model.train() # JA: Set the model to train mode because the self.evaluate sets the model to eval mode.
+        strength = 1.0
+        num_inference_steps = 50
+
+        self.diffusion.scheduler.set_timesteps(num_inference_steps)
+        timesteps, num_inference_steps = self.diffusion.get_timesteps(num_inference_steps, strength)
+
+        for i, t in tqdm(enumerate(timesteps)):
+            # JA: The following loop computes the texture atlas for the given mesh using ten render images. In other words,
+            # it is the inverse rendering process. Each of the ten views is one of the six view images.
+            for data in self.dataloaders['train']:
+                self.paint_step += 1
+                pbar.update(1)
+                self.paint_viewpoint(data, i, t, timesteps) # JA: paint_viewpoint computes the part of the texture atlas by using a specific view image
+                self.evaluate(self.dataloaders['val'], self.eval_renders_path)  # JA: This is the validation step for the current
+                                                                                # training step
+                self.mesh_model.train() # JA: Set the model to train mode because the self.evaluate sets the model to eval mode.
 
         self.mesh_model.change_default_to_median()
         logger.info('Finished Painting ^_^')
@@ -199,7 +206,7 @@ class TEXTure:
             logger.info(f"\tDone!")
 
     # JA: paint_viewpoint computes a portion of the texture atlas for the given viewpoint
-    def paint_viewpoint(self, data: Dict[str, Any]):
+    def paint_viewpoint(self, data: Dict[str, Any], i, t, timesteps):
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius'] # JA: data represents a viewpoint which is stored in the dataset
         # If offset of phi was set from code
@@ -284,12 +291,14 @@ class TEXTure:
             self.log_train_image(F.interpolate(cropped_rgb_render, (512, 512)) * (1 - checker_mask),
                                  'checkerboard_input')
         self.diffusion.use_inpaint = self.cfg.guide.use_inpainting and self.paint_step > 1
-        # JA: self.zero123_front_input has been added for Zero123 integration
-        if self.zero123_front_input is None:
-            resized_zero123_front_input = None
-        else: # JA: Even though zero123 front input is fixed, it will be resized to the rendered image of each viewpoint other than the front view
-            resized_zero123_front_input = F.interpolate(
-                self.zero123_front_input,
+
+        # JA: self.zero123_cond_image has been added for Zero123 integration
+        if self.view_dirs[dirs] == "front":
+            resized_zero123_cond_image = None
+        else:
+            assert self.zero123_cond_image is not None
+            resized_zero123_cond_image = F.interpolate(
+                self.zero123_cond_image,
                 (cropped_rgb_render.shape[-2], cropped_rgb_render.shape[-1]) # JA: (H, W)
             )
 
@@ -315,10 +324,12 @@ class TEXTure:
 
         # JA: So far, the render image was created. Now we generate the image using the SD pipeline
         # Our pipeline uses the rendered image in the process of generating the image.
-        cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(),
+        cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), # JA: cropped_rgb_render is Q_0
                                                                     cropped_depth_render.detach(),
+                                                                    i=i, t=t, timesteps=timesteps,
                                                                     guidance_scale=self.cfg.guide.guidance_scale,
-                                                                    strength=1.0, update_mask=cropped_update_mask,
+                                                                    # strength=1.0, update_mask=cropped_update_mask,
+                                                                    update_mask=cropped_update_mask,
                                                                     fixed_seed=self.cfg.optim.seed,
                                                                     check_mask=checker_mask,
                                                                     intermediate_vis=self.cfg.log.vis_diffusion_steps,
@@ -326,7 +337,7 @@ class TEXTure:
                                                                     # JA: The following were added to use the view image
                                                                     # created by Zero123
                                                                     view_dir=self.view_dirs[dirs], # JA: view_dir = "left", this is used to check if the view direction is front
-                                                                    front_image=resized_zero123_front_input,
+                                                                    front_image=resized_zero123_cond_image,
                                                                     phi=data['phi'],
                                                                     theta=data['base_theta'] - data['theta'],
                                                                     condition_guidance_scales=condition_guidance_scales)
@@ -351,28 +362,17 @@ class TEXTure:
                                                z_normals_cache=z_normals_cache)
         self.log_train_image(fitted_pred_rgb, name='fitted')
 
-        # JA: Zero123 needs the input image without the background
-        # rgb_output is the generated and uncropped image in pixel space
-        zero123_input = crop(
-            rgb_output * object_mask
-            + torch.ones_like(rgb_output, device=self.device) * (1 - object_mask)
-        )   # JA: In the case of front view, the shape is (930,930).
-            # This rendered image will be compressed to the shape of (512, 512) which is the shape of the diffusion
-            # model.
-
         if self.view_dirs[dirs] == "front":
-            self.zero123_front_input = zero123_input
-        
-        # if self.zero123_inputs is None:
-        #     self.zero123_inputs = []
-        
-        # self.zero123_inputs.append({
-        #     'image': zero123_input,
-        #     'phi': data['phi'],
-        #     'theta': data['theta']
-        # })
+            # JA: Zero123 needs the input image without the background
+            # rgb_output is the generated and uncropped image in pixel space
+            self.zero123_cond_image = crop(
+                rgb_output * object_mask
+                + torch.ones_like(rgb_output, device=self.device) * (1 - object_mask)
+            )   # JA: In the case of front view, the shape is (930,930).
+                # This rendered image will be compressed to the shape of (512, 512) which is the shape of the diffusion
+                # model.
 
-        self.log_train_image(zero123_input, name='zero123_input')
+            self.log_train_image(self.zero123_cond_image, name='zero123_input')
 
         return
 
@@ -532,7 +532,7 @@ class TEXTure:
         # The loss function of the neural network is the render loss. The loss is the difference
         # between the specific image and the rendered image, rendered using the current estimate
         # of the texture atlas.
-        for _ in tqdm(range(200), desc='fitting mesh colors'):
+        for _ in tqdm(range(200), desc='fitting mesh colors'): # JA: We use 200 epochs
             optimizer.zero_grad()
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache)
