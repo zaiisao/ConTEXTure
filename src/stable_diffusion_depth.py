@@ -282,7 +282,8 @@ class StableDiffusion(nn.Module):
         # def sample(latents, depth_mask, strength, num_inference_steps, update_mask=None, check_mask=None,
         def sample(latents, i, t, timesteps, depth_mask, update_mask=None, check_mask=None,
                    masked_latents=None):
-            # self.scheduler.set_timesteps(num_inference_steps)
+            
+            # self.scheduler.set_timesteps(num_inference_steps) commented out
             noise = None
             if latents is None:
                 # Last chanel is reserved for depth
@@ -306,29 +307,30 @@ class StableDiffusion(nn.Module):
                         (text_embeddings.shape[0] // 2, self.unet.in_channels - 1, depth_mask.shape[2],
                          depth_mask.shape[3]),
                         device=self.device)
-                else:
+                else: #MJ: update_mask == None:
                     latents = self.scheduler.add_noise(latents, noise, latent_timestep)
             # JA: In our experiment, the latents is a random tensor at this point
 
-            depth_mask = torch.cat([depth_mask] * 2) # JA: depth_mask is D_t (in latent space 64x64)
+            depth_mask = torch.cat([depth_mask] * 2) # JA: depth_mask is D_t (in latent space 64x64): Make two copies of depth map for uncond and cond gen
 
             # print(f"zero123, azimuth: {phi}, overhead: {theta}")
 
             with torch.autocast('cuda'):
                 # for i, t in tqdm(enumerate(timesteps)): # JA: denoising iteration loop of the sample function
-                is_inpaint_range = self.use_inpaint and (10 < i < 20)
+                is_inpaint_range = self.use_inpaint and (10 < i < 20)  #MJ: self.use_inpaint = True
                 mask_constraints_iters = True  # i < 20
                 is_inpaint_iter = is_inpaint_range  # and i %2 == 1
 
-                if is_inpaint_iter:
+                if is_inpaint_iter: #MJ: not True when i <= 10 or i >=20
                     # JA: inpaint pipeline
 
                     # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-                    latent_model_input = torch.cat([latents] * 2)
+                    latent_model_input = torch.cat([latents] * 2)  #MJ: ****** This latents should be the result of the depth-pipeline blending !!
+                    
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input,
                                                                         t)  # NOTE: This does nothing
 
-                    latent_mask = torch.cat([update_mask] * 2)
+                    latent_mask = torch.cat([update_mask] * 2)  #MJ: The mask for inpainting has 1's at the regions to paint in.
                     latent_image = torch.cat([masked_latents] * 2) # JA: latent_image is the masked latent image
                     latent_model_input_inpaint = torch.cat([latent_model_input, latent_mask, latent_image], dim=1)
                     with torch.no_grad():
@@ -344,25 +346,21 @@ class StableDiffusion(nn.Module):
                     # perform guidance
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-                else:
+                else: #MJ: True when i <= 10 or i >=20; e.g. i =0, 1
                     # JA: depth pipeline
 
+                    #MJ: The following if block is executed both for the traditional depth pipeline and the zero123 pipeline
                     if mask_constraints_iters and update_mask is not None:
-                        noised_truth = self.scheduler.add_noise(gt_latents, noise, t) # JA: noised_truth is z_Q_t and gt_latents is z_Q_0 (00XX_cropped_input.jpg)
-                        # JA: update_mask and check_mask are used in both the inpainting and depth pipelines
+                    
+                        noised_truth = self.scheduler.add_noise(gt_latents, noise, t) # JA: noised_truth is z_Q_t and gt_latents is Q_t (00XX_cropped_input.jpg)
+                        
                         # This implements formula 2 of the paper.
                         if check_mask is not None and i < int(len(timesteps) * check_mask_iters):
                             curr_mask = check_mask
                         else:
                             curr_mask = update_mask # JA: update_mask means "refine" in the paper
 
-                        # JA: This corresponds to the formula 1 of the equation paper.
-                        # z_i ← z_i * m_blended + z_Q_t * (1 − m_blended)
-                        # m_blended is curr_mask, which indicates the fill-in/inpaint location
-                        # (1 - curr_mask) is the background
-                        # On the right side, the latents is the random tensor and the noised_truth is the ground
-                        # truth with some noise. latents now refers to the image being denoised and plays the role of
-                        # x in apply_model.
+                        
 
                         torchvision.utils.save_image(self.decode_latents(latents), f"/home/jaehoon/texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_before.png")
                         torchvision.utils.save_image(self.decode_latents(noised_truth), f"/home/jaehoon/texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_noised_truth.png")
@@ -370,7 +368,15 @@ class StableDiffusion(nn.Module):
                         # torchvision.utils.save_image(F.interpolate(original_depth_mask, size=(512, 512))[0], f"/home/jaehoon/texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_depth_mask.png")
                         torchvision.utils.save_image(pred_rgb_512, f"/home/jaehoon/texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_pred_rgb_512.png")
 
-                        # JA: This blend operation is executed for the traditional depth pipeline and the zero123 pipeline
+                        # JA: This blend operation is executed both for the traditional depth pipeline and the zero123 pipeline
+                        # JA: This corresponds to the formula 1 of the equation paper.
+                        # z_i ← z_i * m_blended + z_Q_t * (1 − m_blended)
+                        # m_blended is curr_mask, which indicates the fill-in/inpaint location
+                        # (1 - curr_mask) is the background
+                        # On the right side, the latents is the random tensor and the noised_truth is the ground
+                        # truth with some noise. latents now refers to the image being denoised and plays the role of
+                        # x in apply_model.
+                        
                         latents = latents * curr_mask + noised_truth * (1 - curr_mask)
                         torchvision.utils.save_image(self.decode_latents(latents), f"/home/jaehoon/texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_after.png")
 
@@ -398,7 +404,7 @@ class StableDiffusion(nn.Module):
 
                         for image_path in debug_image_paths:
                             os.remove(image_path)
-                    # JA: latents is random initially
+                    #End if mask_constraints_iters and update_mask is not None:
 
                     if self.second_model_type is None or view_dir == "front":
                         # JA: SD 2.0 depth pipeline
@@ -421,7 +427,7 @@ class StableDiffusion(nn.Module):
 
                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                    else:
+                    else: #MJ: Other views than view_dir == "front":
                         # JA: zero123 or control zero123
 
                         # JA: The following block was added to handle the control image for zero123
@@ -487,7 +493,8 @@ class StableDiffusion(nn.Module):
 
                                 # model_uncond = the unconditional prediction with all three conditions set to None
                                 # model_uncond_concat = the unconditional prediction with only concat condition set to None
-
+                    #End else: #MJ: Other views than view_dir == "front":
+                #End  else: #MJ: True when i <= 10 or i >=20; e.g. i =0, 1    
                     # compute the previous noisy sample x_t -> x_t-1
 
                 if intermediate_vis:
@@ -504,8 +511,9 @@ class StableDiffusion(nn.Module):
 
                 # JA: Denoise one step. This is applied for every pipeline at each iteration
                 latents = self.scheduler.step(noise_pred, t, latents)['prev_sample']
-
-            return latents
+            #End with torch.autocast('cuda'):
+            
+            return latents 
         # JA: end of sample function
 
         depth_mask = F.interpolate(original_depth_mask, size=(64, 64), mode='bicubic',
@@ -525,7 +533,7 @@ class StableDiffusion(nn.Module):
             # else:
             latents = self.encode_imgs(pred_rgb_512) # JA: Convert the rgb_render_output to the latent space of shape 64x64
 
-            if self.use_inpaint:
+            if self.use_inpaint: #MJ: True
                 update_mask_512 = F.interpolate(update_mask, (512, 512))
                 masked_inputs = pred_rgb_512 * (update_mask_512 < 0.5) + 0.5 * (update_mask_512 >= 0.5)
                 masked_latents = self.encode_imgs(masked_inputs)
@@ -549,8 +557,10 @@ class StableDiffusion(nn.Module):
                                     update_mask=update_mask, check_mask=check_mask, masked_latents=masked_latents)
             target_rgb = self.decode_latents(target_latents)    # JA: Convert into the pixel space. target_rgb is the image corresponding to a specific view prompt
                                                                 # In our case, we need to obtain the image corresponding to a specific relative camera pose which
-                                                                # is obtained from the front view image. In our case target_rgb is the image created from zero123
-                                                                # by means of the relative camera pose.
+                                                                # is obtained from the front view image. target_rgb is either the front view image produced from the ordinary depth pipeline
+                                                                # or the image created from zero123 by means of the relative camera pose.
+                                                              
+            #MJ: target_rgb will be the front view image when the view dir is front                                                    
 
         if latent_mode:
             return target_rgb, target_latents # JA: The target_rgb is the result from denoising the blended latent
