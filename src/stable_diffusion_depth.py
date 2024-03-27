@@ -272,7 +272,7 @@ class StableDiffusion(nn.Module):
                      front_image=None, phi=None, theta=None, condition_guidance_scales=None):
         # input is 1 3 512 512      # JA: inputs is cropped_rgb_render.detach()
         # depth_mask is 1 1 512 512
-        # text_embeddings is 2 512 # JA: text_embeddings contains the single embedding for one of the six view prompts
+        # text_embeddings is 2 512 # JA: text_embeddings contains the embedding for one of the six view prompts and the null prompt
 
         # JA: We need to replace text_embeddings by the embedding vector of the cond image + the relative camera pose
         # We also set the self.unet 
@@ -288,7 +288,7 @@ class StableDiffusion(nn.Module):
             if latents is None:
                 # Last chanel is reserved for depth
                 latents = torch.randn(
-                    ( # JA: text_embeddings is a global variable of the sample inner function
+                    ( # JA: text_embeddings is a global variable of the sample inner function: text_embeddings is 2 512
                         text_embeddings.shape[0] // 2, self.unet.in_channels - 1, depth_mask.shape[2],
                         depth_mask.shape[3]),
                     device=self.device)
@@ -441,7 +441,11 @@ class StableDiffusion(nn.Module):
                             use_control=use_control
                         )
 
-                        t = t[None].to(self.device)
+                        t = t[None].to(self.device)                
+                        # #MJ:t is asumed to have a single batch dim??
+                        # timesteps: a 1-D Tensor of N indices, one per batch element.
+                        # t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
+                        
                         with torch.no_grad():
                             # JA: Note that latents -- not latent_model_input -- goes into each
                             # apply_model call, because latent_model_input is created on the
@@ -450,6 +454,7 @@ class StableDiffusion(nn.Module):
                             if uc is None: # JA: We do not consider the negative direction of the unconditional/random generation
                                 # model_t = model_uncond = self.second_model.apply_model(latents, t, cond)
                                 noise_pred = self.second_model.apply_model(latents, t, cond)
+                                #MJ: Is it assumed that latents has a single batch dimention in the same way as t?
                             else:
                                 # JA: We separate conditional generation and unconditional generation because the concatenating uncond
                                 # and cond raises a type mismatch error because cond can contain None value for c_control and None is
@@ -511,6 +516,8 @@ class StableDiffusion(nn.Module):
 
                 # JA: Denoise one step. This is applied for every pipeline at each iteration
                 latents = self.scheduler.step(noise_pred, t, latents)['prev_sample']
+                #MJ: Even when nose_pred is computed by control-zero123 which is implemented by Stable Diffusion code,
+                #    is it OK for us to use the diffuser function self.scheduler.step ??
             #End with torch.autocast('cuda'):
             
             return latents 
