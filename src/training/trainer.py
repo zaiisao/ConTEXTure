@@ -229,7 +229,9 @@ class TEXTure:
         outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
         render_cache = outputs['render_cache'] # JA: All the render outputs have the shape of (1200, 1200)
         rgb_render_raw = outputs['image']  # Render where missing values have special color
+        
         depth_render = outputs['depth']
+        
         # Render again with the median value to use as rgb, we shouldn't have color leakage, but just in case
         outputs = self.mesh_model.render(background=background,
                                          render_cache=render_cache, use_median=self.paint_step > 1)
@@ -324,8 +326,15 @@ class TEXTure:
 
         # JA: So far, the render image was created. Now we generate the image using the SD pipeline
         # Our pipeline uses the rendered image in the process of generating the image.
-        cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), # JA: cropped_rgb_render is Q_0
-                                                                    cropped_depth_render.detach(),
+        
+        # def img2img_step(self, text_embeddings, inputs, original_depth_mask, i, t, timesteps, guidance_scale=100,
+        #              update_mask=None, latent_mode=False, check_mask=None,
+        #              fixed_seed=None, check_mask_iters=0.5, intermediate_vis=False, view_dir=None,
+        #              front_image=None, phi=None, theta=None, condition_guidance_scales=None):
+            
+        cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), # JA: inputs = cropped_rgb_render is Q_t
+                                                                    cropped_depth_render.detach(), #MJ: = original_depth_mask
+                                                                    
                                                                     i=i, t=t, timesteps=timesteps,
                                                                     guidance_scale=self.cfg.guide.guidance_scale,
                                                                     # strength=1.0, update_mask=cropped_update_mask,
@@ -356,12 +365,15 @@ class TEXTure:
 
         # Project back
         object_mask = outputs['mask'] # JA: mask has a shape of 1200x1200
+        
         # JA: Compute a part of the texture atlas corresponding to the target render image of the specific viewpoint
         fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=background, rgb_output=rgb_output,
                                                object_mask=object_mask, update_mask=update_mask, z_normals=z_normals,
                                                z_normals_cache=z_normals_cache)
         self.log_train_image(fitted_pred_rgb, name='fitted')
 
+        #MJ: Move this block before calling cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), # JA: cropped_rgb_render is Q_t
+        
         if self.view_dirs[dirs] == "front":
             # JA: Zero123 needs the input image without the background
             # rgb_output is the generated and uncropped image in pixel space

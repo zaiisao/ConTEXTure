@@ -1,0 +1,24 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "TEXTureWithZero123 run_texture",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "scripts.run_texture",
+            "cwd": "/home/moon/moon/TEXTureWithZero123",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1"
+            },
+            "args": [
+                "--config_path=configs/text_guided/spiderman.yaml"
+            ],
+            "justMyCode": false
+        }
+       
+    ]
+}
