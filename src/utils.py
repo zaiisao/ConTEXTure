@@ -140,7 +140,7 @@ def pad_tensor_to_size(input_tensor, target_height, target_width, value=1):
     
     return padded_tensor
 
-def split_zero123plus_grid(grid_image, tile_size):
+def split_zero123plus_grid(grid_image, tile_size): #MJ: grid_image: (1,4,120,80); tile_size = 320 ??
     images = []
     for row in range(3):
         images_col = []
