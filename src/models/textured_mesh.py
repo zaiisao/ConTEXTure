@@ -476,13 +476,16 @@ class TexturedMeshModel(nn.Module):
 
         if use_median:
             diff = (texture_img - torch.tensor(self.default_color).view(1, 3, 1, 1).to(
-                self.device)).abs().sum(axis=1)
-            default_mask = (diff < 0.1).float().unsqueeze(0)
+                self.device)).abs().sum(axis=1) #MJ: self.default_color=(0.8,0.1,0.8) = magenta
+            default_mask = (diff < 0.1).float().unsqueeze(0) #MJ: the mask for the background
             median_color = texture_img[0, :].reshape(3, -1)[:, default_mask.flatten() == 0].mean(
-                axis=1)
+                axis=1)  #MJ: get the median color for the non-background region:  median_color = [nan,nan,nan] ??
+            #MJ: If all values in default_mask.flatten() are False (indicating that no elements are equal to 0), then the selection operation results in an empty tensor.
+            # Performing any statistical operation like median on an empty tensor results in NaN values because the operation is undefined over an empty set.
+            
             texture_img = texture_img.clone()
-            with torch.no_grad():
-                texture_img.reshape(3, -1)[:, default_mask.flatten() == 1] = median_color.reshape(-1, 1)
+            with torch.no_grad(): #MJ: set the texture atlas with the median_color of the non-background => Use this texture map to re-render the mesh
+                texture_img.reshape(3, -1)[:, default_mask.flatten() == 1] = median_color.reshape(-1, 1) #MJ: texture_img: (1,3,1024,1024)
         background_type = 'none'
         use_render_back = False
         if background is not None and type(background) == str: # JA: If background is a string, set it as the type
@@ -496,7 +499,7 @@ class TexturedMeshModel(nn.Module):
             augmented_vertices[None].repeat(batch_size, 1, 1),
             self.mesh.faces, # JA: the faces tensor can be shared across the batch and does not require its own batch dimension.
             self.face_attributes.repeat(batch_size, 1, 1, 1),
-            texture_img.repeat(batch_size, 1, 1, 1),
+            texture_img.repeat(batch_size, 1, 1, 1), #MJ: texture_img is nan
             elev=theta,
             azim=phi,
             radius=radius,

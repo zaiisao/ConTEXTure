@@ -94,6 +94,8 @@ class OptimConfig:
     max_timestep: float = 0.98
     # For Diffusion model
     no_noise: bool = False
+    #MJ: added
+    epochs: int = 150
 
 
 @dataclass

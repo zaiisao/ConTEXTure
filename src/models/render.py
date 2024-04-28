@@ -14,7 +14,7 @@ class Renderer:
         self.device = device
         self.interpolation_mode = interpolation_mode
         self.camera_projection = camera
-        self.dim = dim
+        self.dim = dim  #MJ: (1200, 1200) in our experiment
         self.background = torch.ones(dim).to(device).float()
 
     @staticmethod
@@ -188,7 +188,7 @@ class Renderer:
 
     def render_multiple_view_texture(self, verts, faces, uv_face_attr, texture_map, elev, azim, radius,
                                    look_at_height=0.0, dims=None, background_type='none', render_cache=None):
-        dims = self.dim if dims is None else dims
+        dims = self.dim if dims is None else dims #MJ: self.dim= (1200, 1200); self is an src.models.render.Renderer object
 
         if render_cache is None:
 
@@ -200,7 +200,7 @@ class Renderer:
             face_vertices_camera, face_vertices_image, face_normals = kal.render.mesh.prepare_vertices(
                 verts, faces, self.camera_projection, camera_transform=camera_transform)
             # JA: face_vertices_camera[:, :, :, -1] likely refers to the z-component (depth component) of these coordinates, used both for depth mapping and for determining how textures map onto the surfaces during UV feature generation.
-            depth_map, _ = kal.render.mesh.rasterize(dims[1], dims[0], face_vertices_camera[:, :, :, -1],
+            depth_map, _ = kal.render.mesh.rasterize(dims[1], dims[0], face_vertices_camera[:, :, :, -1],  #MJ: dims[1]=H, dims[0]=W
                                                               face_vertices_image, face_vertices_camera[:, :, :, -1:]) 
             depth_map = self.normalize_multiple_depth(depth_map)
 
@@ -209,11 +209,11 @@ class Renderer:
             uv_features = uv_features.detach()
 
         else:
-            # logger.info('Using render cache')
+            # logger.info('Using render cache'): MJ: do not render the mesh; use the rendering in the previous viewpoint
             face_normals, uv_features, face_idx, depth_map = render_cache['face_normals'], render_cache['uv_features'], render_cache['face_idx'], render_cache['depth_map']
         mask = (face_idx > -1).float()[..., None]
 
-        image_features = kal.render.mesh.texture_mapping(uv_features, texture_map, mode=self.interpolation_mode)
+        image_features = kal.render.mesh.texture_mapping(uv_features, texture_map, mode=self.interpolation_mode) #MJ: texture_map is nan
                         # JA: Interpolates texture_maps by dense or sparse texture_coordinates (uv_features).
                         # This function supports sampling texture coordinates for:
                         # 1. An entire 2D image
@@ -227,16 +227,20 @@ class Renderer:
 
         # JA: face_normals[0].shape:[14232, 3], face_idx.shape: [1, 1024, 1024]
         # normals_image = face_normals[0][face_idx, :] # JA: normals_image: [1024, 1024, 3]
-        # Generate batch indices
+        # Generate batch indices: face_normals.shape: torch.Size([1, 98998, 3]); 98998 = the num of faces
         batch_size = face_normals.shape[0]
-        batch_indices = torch.arange(batch_size).view(-1, 1, 1)
+        batch_indices = torch.arange(batch_size).view(-1, 1, 1) #MJ: batch_indices: (1,1,1)
 
-        # Expand batch_indices to match the dimensions of face_idx
-        batch_indices = batch_indices.expand(-1, *face_idx.shape[1:])
+        # Expand batch_indices to match the dimensions of face_idx: batch_indices.shape: torch.Size([1, 1200, 1200])
+        batch_indices = batch_indices.expand(-1, *face_idx.shape[1:])  #MJ: face_idx.shape: torch.Size([1, 1200, 1200]): Each element in 1200x1200 matrix refers to the face id, one of 98998
 
-        # Use advanced indexing to gather the results
-        normals_image = face_normals[batch_indices, face_idx]
-
+        #MJ: The original version: 
+        #    normals_image = face_normals[0][face_idx, :] => face_normals[0][face_idx, :] ==  face_normals[0,face_idx, :] 
+        # Use advanced indexing to gather the results: face_normals.shape: torch.Size([1, 98998, 3])
+        normals_image = face_normals[batch_indices, face_idx] #MJ: normals_image.shape: torch.Size([1, 1200, 1200, 3])
+        #MJ: face_normals[batch_indices, face_idx, :] effectively uses batch_indices to select the batch (which is always 0 in this case since there's only one batch), and face_idx to select the specific normals.
+                                                                                                     
+        #MJL For batch_indices of shape [1, 1200, 1200], every element in this tensor will be 0, indicating that each index selection should come from the first batch of face_normals.
         render_cache = {'uv_features':uv_features, 'face_normals':face_normals,'face_idx':face_idx, 'depth_map':depth_map}
 
         return image_features.permute(0, 3, 1, 2), mask.permute(0, 3, 1, 2),\
