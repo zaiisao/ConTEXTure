@@ -42,6 +42,14 @@ def get_view_direction(thetas, phis, overhead, front):
 
 def tensor2numpy(tensor: torch.Tensor) -> np.ndarray:
     tensor = tensor.detach().cpu().numpy()
+    #MJ: added to handle bad pixel values 
+    if np.any(np.isnan(tensor)) or np.any(np.isinf(tensor)):
+    #     # Raise an exception if there are any NaNs or infinite values
+    #      tensor = einops.rearrange(tensor, '(1) c h w -> h w c').detach().cpu().numpy()
+    #      Image.fromarray( (tensor * 255).astype(np.uint8) ).save('experiments'/f'debug:NanOrInf.jpg')
+
+          raise ValueError("Tensor contains NaNs or infinite values, which cannot be converted to np.uint8.")
+
     tensor = (tensor * 255).astype(np.uint8)
     #MJ: This line is syntactically correct for converting a tensor to a numpy array,
     # scaling its values by 255, and then converting it to an 8-bit unsigned integer format.

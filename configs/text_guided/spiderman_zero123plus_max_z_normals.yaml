@@ -9,3 +9,4 @@ guide:
 optim:
   #seed: 3
   learn_max_z_normals: True
+  alpha:               -10

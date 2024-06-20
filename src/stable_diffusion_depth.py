@@ -377,40 +377,40 @@ class StableDiffusion(nn.Module):
                             # truth with some noise. latents now refers to the image being denoised and plays the role of
                             # x in apply_model.
 
-                            torchvision.utils.save_image(self.decode_latents(latents), f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_before.png")
-                            torchvision.utils.save_image(self.decode_latents(noised_truth), f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_noised_truth.png")
-                            torchvision.utils.save_image(F.interpolate(curr_mask, size=(image_size, image_size))[0], f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_curr_mask.png")
-                            # torchvision.utils.save_image(F.interpolate(original_depth_mask, size=(512, 512))[0], f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_depth_mask.png")
-                            torchvision.utils.save_image(pred_rgb_small, f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_pred_rgb_512.png")
+                            # torchvision.utils.save_image(self.decode_latents(latents), f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_before.png")
+                            # torchvision.utils.save_image(self.decode_latents(noised_truth), f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_noised_truth.png")
+                            # torchvision.utils.save_image(F.interpolate(curr_mask, size=(image_size, image_size))[0], f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_curr_mask.png")
+                            # # torchvision.utils.save_image(F.interpolate(original_depth_mask, size=(512, 512))[0], f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_depth_mask.png")
+                            # torchvision.utils.save_image(pred_rgb_small, f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_pred_rgb_512.png")
 
-                            # JA: This blend operation is executed for the traditional depth pipeline and the zero123 pipeline
-                            latents = latents * curr_mask + noised_truth * (1 - curr_mask)
-                            torchvision.utils.save_image(self.decode_latents(latents), f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_after.png")
+                            # # JA: This blend operation is executed for the traditional depth pipeline and the zero123 pipeline
+                            # latents = latents * curr_mask + noised_truth * (1 - curr_mask)
+                            # torchvision.utils.save_image(self.decode_latents(latents), f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_after.png")
 
-                            debug_image_paths = [
-                                f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_before.png",
-                                f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_pred_rgb_512.png",
-                                f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_noised_truth.png",
-                                f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_curr_mask.png",
-                                f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_after.png"
-                            ]
-                            images = [Image.open(x) for x in debug_image_paths]
-                            widths, heights = zip(*(i.size for i in images))
+                            # debug_image_paths = [
+                            #     f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_before.png",
+                            #     f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_pred_rgb_512.png",
+                            #     f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_noised_truth.png",
+                            #     f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_curr_mask.png",
+                            #     f"./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}_latents_after.png"
+                            # ]
+                            # images = [Image.open(x) for x in debug_image_paths]
+                            # widths, heights = zip(*(i.size for i in images))
 
-                            total_width = sum(widths)
-                            max_height = max(heights)
+                            # total_width = sum(widths)
+                            # max_height = max(heights)
 
-                            new_im = Image.new('RGB', (total_width, max_height))
+                            # new_im = Image.new('RGB', (total_width, max_height))
 
-                            x_offset = 0
-                            for im in images:
-                                new_im.paste(im, (x_offset,0))
-                                x_offset += im.size[0]
+                            # x_offset = 0
+                            # for im in images:
+                            #     new_im.paste(im, (x_offset,0))
+                            #     x_offset += im.size[0]
 
-                            new_im.save(f'./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}.png')
+                            # new_im.save(f'./texture_test/{round(math.degrees(phi))}_{round(math.degrees(theta))}_{i}.png')
 
-                            for image_path in debug_image_paths:
-                                os.remove(image_path)
+                            # for image_path in debug_image_paths:
+                            #     os.remove(image_path)
                         # JA: latents is random initially
 
                         if self.second_model_type is None or view_dir == "front":
